@@ -6,6 +6,7 @@ use Illuminate\Auth\Events\Lockout;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\RateLimiter;
+use Illuminate\Support\Facades\Session;
 use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
 
@@ -29,6 +30,7 @@ class LoginRequest extends FormRequest
         return [
             'email' => ['required', 'string'],
             'password' => ['required', 'string'],
+            'captcha' => ['nullable', 'string'],
         ];
     }
 
@@ -40,6 +42,20 @@ class LoginRequest extends FormRequest
     public function authenticate(): void
     {
         $this->ensureIsNotRateLimited();
+
+        // Validasi captcha jika dikirimkan atau jika captcha aktif di sesi
+        $expectedCaptcha = Session::get('login_captcha');
+        if ($expectedCaptcha !== null) {
+            $inputCaptcha = trim((string) $this->input('captcha'));
+            if ($inputCaptcha === '' || $inputCaptcha !== $expectedCaptcha) {
+                // Generate captcha baru setelah percobaan gagal
+                Session::forget('login_captcha');
+                throw ValidationException::withMessages([
+                    'captcha' => 'Jawaban captcha salah atau kedaluwarsa. Silakan hitung ulang.',
+                ]);
+            }
+            Session::forget('login_captcha');
+        }
 
         if (! Auth::attempt($this->only('email', 'password'), $this->boolean('remember'))) {
             RateLimiter::hit($this->throttleKey());
